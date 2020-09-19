@@ -6,15 +6,15 @@ rust_repositories()
 
 load("@io_bazel_rules_rust//proto:repositories.bzl", "rust_proto_repositories")
 
-rust_proto_repositories()
+# rust_proto_repositories()
 
 load("@io_bazel_rules_rust//bindgen:repositories.bzl", "rust_bindgen_repositories")
 
-rust_bindgen_repositories()
+# rust_bindgen_repositories()
 
 load("@io_bazel_rules_rust//wasm_bindgen:repositories.bzl", "rust_wasm_bindgen_repositories")
 
-rust_wasm_bindgen_repositories()
+# rust_wasm_bindgen_repositories()
 
 load("@io_bazel_rules_rust//:workspace.bzl", "rust_workspace")
 
