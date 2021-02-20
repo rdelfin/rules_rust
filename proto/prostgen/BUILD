@@ -29,8 +29,8 @@ rust_library(
 rust_binary(
     name = "prostgen",
     srcs = ["main.rs"],
-    visibility = ["//visibility:public"],
     edition = "2018",
+    visibility = ["//visibility:public"],
     deps = [
         ":prostgen_lib",
         "@rules_rust//proto/prostgen/raze/cargo:anyhow",

@@ -141,31 +141,15 @@ prost_library(
     name = "use_directly_prost",
     deps = [
         ":use_external_proto",
-        "@com_google_protobuf//:any_proto",
-        "@com_google_protobuf//:timestamp_proto",
     ],
 )
 
-# prost_library(
-#     name = "status_prost",
-#     extern = [
-#         "//proto/googleapis:code_prost",
-#     ],
-#     deps = [
-#         "@com_google_googleapis//google/rpc:status_proto",
-#     ],
-# )
-#
-# prost_library(
-#     name = "use_indirectly_prost",
-#     extern = [
-#         "//proto/protobuf:any_prost",
-#         "//proto/protobuf:timestamp_prost",
-#     ],
-#     deps = [
-#         ":use_external_proto",
-#     ],
-# )
+prost_library(
+    name = "use_indirectly_prost",
+    deps = [
+        ":use_external_proto",
+    ],
+)
 
 proto_library(
     name = "depends_on_use_external_proto",
@@ -175,30 +159,11 @@ proto_library(
     ],
 )
 
-# prost_library(
-#     name = "depends_on_use_external_prost",
-#     extern = [
-#         ":use_indirectly_prost",
-#     ],
-#     deps = [
-#         ":depends_on_use_external_proto",
-#     ],
-# )
-
-# proto_library(
-#     name = "shared_imports_proto",
-#     srcs = ["shared_imports.proto"],
-#     deps = [
-#         "@com_google_googleapis//google/rpc:status_proto",
-#         "@com_google_protobuf//:any_proto",
-#     ],
-# )
-
-# prost_library(
-#     name = "shared_imports_prost",
-#     extern = [
-#         "//proto/protobuf:any_prost",
-#         "//proto/googleapis:status_prost",
-#     ],
-#     deps = ["shared_imports_proto"],
-# )
+prost_library(
+    name = "depends_on_use_external_prost",
+    extern = [
+    ],
+    deps = [
+        ":depends_on_use_external_proto",
+    ],
+)
