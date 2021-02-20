@@ -19,7 +19,7 @@ load("@bazel_skylib//lib:selects.bzl", "selects")
 package(default_visibility = [
     # Public for visibility by "@raze__crate__version//" targets.
     #
-    # Prefer access through "//proto/prostgen/raze", which limits external
+    # Prefer access through "//proto/raze", which limits external
     # visibility to explicit Cargo.toml dependencies.
     "//visibility:public",
 ])
@@ -28,29 +28,33 @@ licenses([
     "notice",  # MIT from expression "MIT OR Apache-2.0"
 ])
 
-# Generated Targets
+# Generated targets
 
+# buildifier: leave-alone
 rust_library(
-    name = "futures_core",
-    srcs = glob(["**/*.rs"]),
-    crate_features = [
-        "alloc",
-        "default",
-        "std",
-    ],
-    crate_root = "src/lib.rs",
+    name = "base64",
     crate_type = "lib",
-    data = [],
-    edition = "2018",
+    deps = [
+        "@rules_rust_proto__byteorder__1_3_4//:byteorder",
+        "@rules_rust_proto__safemem__0_3_3//:safemem",
+    ],
+    srcs = glob(["**/*.rs"]),
+    crate_root = "src/lib.rs",
+    edition = "2015",
     rustc_flags = [
         "--cap-lints=allow",
     ],
+    version = "0.9.3",
     tags = [
         "cargo-raze",
         "manual",
     ],
-    version = "0.3.12",
-    # buildifier: leave-alone
-    deps = [
+    crate_features = [
     ],
 )
+# Unsupported target "benchmarks" with type "bench" omitted
+# Unsupported target "decode" with type "test" omitted
+# Unsupported target "encode" with type "test" omitted
+# Unsupported target "helpers" with type "test" omitted
+# Unsupported target "make_tables" with type "example" omitted
+# Unsupported target "tests" with type "test" omitted

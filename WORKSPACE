@@ -5,10 +5,10 @@ load("@rules_rust//rust:repositories.bzl", "rust_repositories")
 rust_repositories()
 
 load("@rules_rust//proto:repositories.bzl", "rust_proto_repositories")
-# load("@io_bazel_rules_rust//proto/prostgen/raze:crates.bzl", "rules_rust_prostgen_fetch_remote_crates")
+load("@rules_rust//proto/prostgen/raze:crates.bzl", "rules_rust_prostgen_fetch_remote_crates")
 
 rust_proto_repositories()
-# rules_rust_prostgen_fetch_remote_crates()
+rules_rust_prostgen_fetch_remote_crates()
 
 load("@rules_rust//bindgen:repositories.bzl", "rust_bindgen_repositories")
 

@@ -3,19 +3,19 @@ A set of rules and macros for generating prost-based rust protobuf code.
 """
 
 load("@rules_proto//proto:defs.bzl", "ProtoInfo")
-load("@io_bazel_rules_rust//rust:rust.bzl", "rust_library")
+load("@rules_rust//rust:rust.bzl", "rust_library")
 
 _PROST_COMPILE_DEPS = [
-    "@io_bazel_rules_rust//proto/prostgen/raze/cargo:prost",
-    "@io_bazel_rules_rust//proto/prostgen/raze/cargo:prost_types",
+    "@rules_rust//proto/prostgen/raze/cargo:prost",
+    "@rules_rust//proto/prostgen/raze/cargo:prost_types",
 ]
 
 _PROST_COMPILE_PROC_MACRO_DEPS = [
-    "@io_bazel_rules_rust//proto/prostgen/raze/cargo:prost_derive",
+    "@rules_rust//proto/prostgen/raze/cargo:prost_derive",
 ]
 
 _TONIC_COMPILE_DEPS = [
-    "@io_bazel_rules_rust//proto/prostgen/raze/cargo:tonic",
+    "@rules_rust//proto/prostgen/raze/cargo:tonic",
 ]
 
 ProstGenInfo = provider(
@@ -85,7 +85,7 @@ def _prost_generator_impl(ctx):
     )
     args.add_all(transitive_proto_path, format_each = "-I%s")
 
-    rustfmt = ctx.toolchains["@io_bazel_rules_rust//rust:toolchain"].rustfmt
+    rustfmt = ctx.toolchains["@rules_rust//rust:toolchain"].rustfmt
     ctx.actions.run(
         inputs = depset(
             transitive = [transitive_sources, extern_descriptors],
@@ -187,7 +187,7 @@ _prost_generator = rule(
             executable = True,
             cfg = "host",
             default = Label(
-                "@io_bazel_rules_rust//proto/prostgen",
+                "@rules_rust//proto/prostgen",
             ),
         ),
         "_protoc": attr.label(
@@ -198,7 +198,7 @@ _prost_generator = rule(
         ),
     },
     toolchains = [
-        "@io_bazel_rules_rust//rust:toolchain",
+        "@rules_rust//rust:toolchain",
     ],
     doc = """
 Provides a wrapper around the generation of rust files.  The specification of
