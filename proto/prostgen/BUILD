@@ -13,15 +13,16 @@ rust_library(
         "lib.rs",
         "module.rs",
     ],
+    edition = "2018",
     deps = [
-        "//proto/prostgen/raze:anyhow",
-        "//proto/prostgen/raze:heck",
-        "//proto/prostgen/raze:prost",
-        "//proto/prostgen/raze:prost_build",
-        "//proto/prostgen/raze:prost_types",
-        "//proto/prostgen/raze:structopt",
-        "//proto/prostgen/raze:thiserror",
-        "//proto/prostgen/raze:tonic_build",
+        "@io_bazel_rules_rust//proto/prostgen/raze/cargo:anyhow",
+        "@io_bazel_rules_rust//proto/prostgen/raze/cargo:heck",
+        "@io_bazel_rules_rust//proto/prostgen/raze/cargo:prost",
+        "@io_bazel_rules_rust//proto/prostgen/raze/cargo:prost_build",
+        "@io_bazel_rules_rust//proto/prostgen/raze/cargo:prost_types",
+        "@io_bazel_rules_rust//proto/prostgen/raze/cargo:structopt",
+        "@io_bazel_rules_rust//proto/prostgen/raze/cargo:thiserror",
+        "@io_bazel_rules_rust//proto/prostgen/raze/cargo:tonic_build",
     ],
 )
 
@@ -29,10 +30,11 @@ rust_binary(
     name = "prostgen",
     srcs = ["main.rs"],
     visibility = ["//visibility:public"],
+    edition = "2018",
     deps = [
         ":prostgen_lib",
-        "//proto/prostgen/raze:anyhow",
-        "//proto/prostgen/raze:structopt",
+        "@io_bazel_rules_rust//proto/prostgen/raze/cargo:anyhow",
+        "@io_bazel_rules_rust//proto/prostgen/raze/cargo:structopt",
     ],
 )
 

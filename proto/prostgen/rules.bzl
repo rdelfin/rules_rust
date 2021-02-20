@@ -6,16 +6,16 @@ load("@rules_proto//proto:defs.bzl", "ProtoInfo")
 load("@io_bazel_rules_rust//rust:rust.bzl", "rust_library")
 
 _PROST_COMPILE_DEPS = [
-    "//proto/prostgen/raze:prost",
-    "//proto/prostgen/raze:prost_types",
+    "@io_bazel_rules_rust//proto/prostgen/raze/cargo:prost",
+    "@io_bazel_rules_rust//proto/prostgen/raze/cargo:prost_types",
 ]
 
 _PROST_COMPILE_PROC_MACRO_DEPS = [
-    "//proto/prostgen/raze:prost_derive",
+    "@io_bazel_rules_rust//proto/prostgen/raze/cargo:prost_derive",
 ]
 
 _TONIC_COMPILE_DEPS = [
-    "//proto/prostgen/raze:tonic",
+    "@io_bazel_rules_rust//proto/prostgen/raze/cargo:tonic",
 ]
 
 ProstGenInfo = provider(
@@ -187,7 +187,7 @@ _prost_generator = rule(
             executable = True,
             cfg = "host",
             default = Label(
-                "//proto/prostgen",
+                "@io_bazel_rules_rust//proto/prostgen",
             ),
         ),
         "_protoc": attr.label(

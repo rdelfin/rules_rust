@@ -1,6 +1,6 @@
 # Testing the prost_library macro usability
 
-load("//rust:rust.bzl", "rust_doc_test", "rust_library", "rust_test")
+load("//rust:rust.bzl", "rust_library", "rust_test")
 load("@rules_proto//proto:defs.bzl", "proto_library")
 load("//proto/prostgen:rules.bzl", "prost_library", "tonic_library")
 
@@ -34,25 +34,28 @@ rust_library(
     srcs = [
         "echo_impl.rs",
     ],
+    edition = "2018",
     visibility = ["//visibility:public"],
     deps = [
         ":echo_tonic",
-        "//proto/prostgen/raze:tonic",
+        "//proto/prostgen/raze/cargo:tonic",
     ],
 )
 
 rust_test(
     name = "prostgen_proto_usage_test",
     srcs = ["echo_usage_test.rs"],
+    edition = "2018",
     deps = [":echo_prost"],
 )
 
 rust_test(
     name = "tonic_usage_test",
     srcs = ["echo_service_test.rs"],
+    edition = "2018",
     deps = [
         ":echo_tonic",
-        "//proto/prostgen/raze:tonic",
+        "//proto/prostgen/raze/cargo:tonic",
     ],
 )
 
@@ -115,6 +118,7 @@ prost_library(
 rust_test(
     name = "extern_path_test",
     srcs = ["extern_path_test.rs"],
+    edition = "2018",
     deps = [
         ":a_prost",
         ":b_prost",
@@ -181,14 +185,14 @@ proto_library(
 #     ],
 # )
 
-proto_library(
-    name = "shared_imports_proto",
-    srcs = ["shared_imports.proto"],
-    deps = [
-        "@com_google_googleapis//google/rpc:status_proto",
-        "@com_google_protobuf//:any_proto",
-    ],
-)
+# proto_library(
+#     name = "shared_imports_proto",
+#     srcs = ["shared_imports.proto"],
+#     deps = [
+#         "@com_google_googleapis//google/rpc:status_proto",
+#         "@com_google_protobuf//:any_proto",
+#     ],
+# )
 
 # prost_library(
 #     name = "shared_imports_prost",

@@ -1,7 +1,7 @@
 [package]
 name = "compile_with_bazel"
 version = "0.1.0"
-edition = '2018'
+edition = "2018"
 
 # Mandatory (or Cargo tooling is unhappy)
 [lib]
@@ -18,20 +18,22 @@ prost = "=0.6.1"
 prost-derive = "=0.6.1"
 prost-build = "=0.6.1"
 prost-types = "=0.6.1"
+ring = "=0.16.15"
 structopt = { version = "=0.3.13", default-features = false }
 thiserror = "=1.0.18"
 tonic = { version = "=0.3.0", features = ["default", "tls", "tls-roots", "transport"] }
 tonic-build = "=0.3.0"
 
-[raze]
-# The WORKSPACE relative path to the Cargo.toml working directory.
+[workspace.metadata.raze]
 workspace_path = "//proto/prostgen/raze"
-genmode = "Remote"
+gen_workspace_prefix = "rules_rust_prostgen"
 default_gen_buildrs = true
-# default_gen_buildrs = false
-
-# The target to generate BUILD rules for.
-target = "x86_64-unknown-linux-gnu"
+genmode = "Remote"
+targets = [
+    "x86_64-apple-darwin",
+    "x86_64-pc-windows-msvc",
+    "x86_64-unknown-linux-gnu",
+]
 
 # [raze.crates.proc-macro2.'1.0.21']
 # gen_buildrs = true
@@ -60,22 +62,22 @@ target = "x86_64-unknown-linux-gnu"
 #     "--cfg=has_std",
 # ]
 
-[raze.crates.prost-build.'0.6.1']
+[package.metadata.raze.crates.prost-build.'0.6.1']
 gen_buildrs = false
 patches = [
     "//proto/prostgen/raze/patches:prost-build-0.6.1.patch",
 ]
 patch_args = ["-p1"]
 
-[raze.crates.ring.'0.16.15']
+[package.metadata.raze.crates.ring.'*']
 gen_buildrs = false
-data_attr = 'glob(["**/src/data/*", "**/src/ec/**/*.der"])'
+data_attr = "glob([\"**/*.der\"])"
 additional_deps = [
     # provided by the additional_build_file
     ":ring-core",
 ]
 additional_build_file = "builds/ring-0.16.BUILD"
 
-[raze.crates.webpki.'0.21.3']
+[package.metadata.raze.crates.webpki.'0.21.3']
 gen_buildrs = false
 data_attr = 'glob(["**/src/data/*"])'
