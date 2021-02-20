@@ -31,14 +31,14 @@ def rust_bindgen_repositories():
 
     rules_rust_bindgen_fetch_remote_crates()
 
-    native.register_toolchains("@io_bazel_rules_rust//bindgen:default_bindgen_toolchain")
+    native.register_toolchains(str(Label("//bindgen:default_bindgen_toolchain")))
 
 _COMMON_WORKSPACE = """\
 workspace(name = "{}")
 
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 
-http_archive()
+http_archive(
     name = "rules_cc",
     url = "https://github.com/bazelbuild/rules_cc/archive/624b5d59dfb45672d4239422fa1e3de1822ee110.zip",
     sha256 = "8c7e8bf24a2bf515713445199a677ee2336e1c487fa1da41037c6026de04bbc3",

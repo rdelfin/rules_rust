@@ -15,7 +15,7 @@
 //! Parse the output of a cargo build.rs script and generate a list of flags and
 //! environment variable for the build.
 use std::io::{BufRead, BufReader, Read};
-use std::process::{Command, Stdio};
+use std::process::{Command, Output};
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct CompileAndLinkFlags {
@@ -51,14 +51,12 @@ impl BuildScriptOutput {
         let split = line.splitn(2, '=').collect::<Vec<_>>();
         if split.len() <= 1 {
             // Not a cargo directive.
-            print!("{}", line);
             return None;
         }
         let param = split[1].trim().to_owned();
         let key_split = split[0].splitn(2, ':').collect::<Vec<_>>();
         if key_split.len() <= 1 || key_split[0] != "cargo" {
             // Not a cargo directive.
-            print!("{}", line);
             return None;
         }
         match key_split[1] {
@@ -73,12 +71,12 @@ impl BuildScriptOutput {
                 None
             }
             "warning" => {
-                eprintln!("Build Script Warning: {}", split[1]);
+                eprint!("Build Script Warning: {}", split[1]);
                 None
             }
             "rustc-cdylib-link-arg" => {
                 // cargo:rustc-cdylib-link-arg=FLAG — Passes custom flags to a linker for cdylib crates.
-                eprintln!(
+                eprint!(
                     "Warning: build script returned unsupported directive `{}`",
                     split[0]
                 );
@@ -109,18 +107,16 @@ impl BuildScriptOutput {
     }
 
     /// Take a [Command], execute it and converts its input into a vector of [BuildScriptOutput]
-    pub fn from_command(cmd: &mut Command) -> Result<Vec<BuildScriptOutput>, Option<i32>> {
-        let mut child = cmd
-            .stdout(Stdio::piped())
-            .spawn()
+    pub fn from_command(cmd: &mut Command) -> Result<(Vec<BuildScriptOutput>, Output), Output> {
+        let child_output = cmd
+            .output()
             .expect("Unable to start binary");
-        let reader = BufReader::new(child.stdout.as_mut().expect("Failed to open stdout"));
-        let output = Self::from_reader(reader);
-        let ecode = child.wait().expect("failed to wait on child");
-        if ecode.success() {
-            Ok(output)
+        if child_output.status.success() {
+            let reader = BufReader::new(child_output.stdout.as_slice());
+            let output = Self::from_reader(reader);
+            Ok((output, child_output))
         } else {
-            Err(ecode.code())
+            Err(child_output)
         }
     }
 
@@ -139,21 +135,16 @@ impl BuildScriptOutput {
     }
 
     /// Convert a vector of [BuildScriptOutput] into a list of dependencies environment variables.
-    pub fn to_dep_env(v: &Vec<BuildScriptOutput>, crate_name: &str) -> String {
-        // TODO: make use of `strip_suffix`.
-        const SYS_CRATE_SUFFIX: &str = "-sys";
-        let name = if crate_name.ends_with(SYS_CRATE_SUFFIX) {
-            crate_name
-                .split_at(crate_name.rfind(SYS_CRATE_SUFFIX).unwrap())
-                .0
-        } else {
-            crate_name
-        };
-        let prefix = format!("DEP_{}_", name.replace("-", "_").to_uppercase());
+    pub fn to_dep_env(v: &Vec<BuildScriptOutput>, crate_links: &str, exec_root: &str) -> String {
+        let prefix = format!("DEP_{}_", crate_links.replace("-", "_").to_uppercase());
         v.iter()
             .filter_map(|x| {
                 if let BuildScriptOutput::DepEnv(env) = x {
-                    Some(format!("{}{}", prefix, env.to_owned()))
+                    Some(format!(
+                        "{}{}",
+                        prefix,
+                        Self::redact_exec_root(env, exec_root)
+                    ))
                 } else {
                     None
                 }
@@ -205,12 +196,13 @@ cargo:rerun-if-changed=ignored
 cargo:rustc-cfg=feature=awesome
 cargo:version=123
 cargo:version_number=1010107f
+cargo:include_path=/some/absolute/path/include
 cargo:rustc-env=SOME_PATH=/some/absolute/path/beep
 ",
         );
         let reader = BufReader::new(buff);
         let result = BuildScriptOutput::from_reader(reader);
-        assert_eq!(result.len(), 9);
+        assert_eq!(result.len(), 10);
         assert_eq!(result[0], BuildScriptOutput::LinkLib("sdfsdf".to_owned()));
         assert_eq!(result[1], BuildScriptOutput::Env("FOO=BAR".to_owned()));
         assert_eq!(
@@ -232,13 +224,13 @@ cargo:rustc-env=SOME_PATH=/some/absolute/path/beep
             BuildScriptOutput::DepEnv("VERSION_NUMBER=1010107f".to_owned())
         );
         assert_eq!(
-            result[8],
+            result[9],
             BuildScriptOutput::Env("SOME_PATH=/some/absolute/path/beep".to_owned())
         );
 
         assert_eq!(
-            BuildScriptOutput::to_dep_env(&result, "my-crate-sys"),
-            "DEP_MY_CRATE_VERSION=123\nDEP_MY_CRATE_VERSION_NUMBER=1010107f".to_owned()
+            BuildScriptOutput::to_dep_env(&result, "ssh2", "/some/absolute/path"),
+            "DEP_SSH2_VERSION=123\nDEP_SSH2_VERSION_NUMBER=1010107f\nDEP_SSH2_INCLUDE_PATH=${pwd}/include".to_owned()
         );
         assert_eq!(
             BuildScriptOutput::to_env(&result, "/some/absolute/path"),
