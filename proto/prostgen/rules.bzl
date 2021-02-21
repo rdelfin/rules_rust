@@ -18,16 +18,17 @@ _TONIC_COMPILE_DEPS = [
     "@rules_rust//proto/prostgen/raze/cargo:tonic",
 ]
 
+# buildifier: disable=provider-params
 ProstGenInfo = provider(
     fields = {
         "crate": "name of the crate that is used by the rust_library",
         "descriptor_set": "the file descriptor set for the target's sources",
         "transitive_proto_path": "depset containing all of the include paths " +
                                  "that need to be passed to protoc",
-        "transitive_sources": "depset containing all of the proto files that " +
-                              "must be accessed by protoc",
         "transitive_externs": "depset containing all of the extern targets " +
                               "that are passed to prostgen",
+        "transitive_sources": "depset containing all of the proto files that " +
+                              "must be accessed by protoc",
     },
 )
 
@@ -91,10 +92,6 @@ def _prost_generator_impl(ctx):
             transitive = [transitive_sources, extern_descriptors],
         ),
         env = {
-            # We've patched rustfmt to expect that it can resolve the path to
-            # protoc at runtime via this environment variable, rather than
-            # expecting that this path was available at build time.
-            "PROTOC": ctx.executable._protoc.path,
             # Since tonic_build has logic to run rustfmt, and does so by default
             # for that matter, inject rustfmt into PATH, so that
             # std::process::Command can find it.  This seemed to be more clear
@@ -111,6 +108,10 @@ def _prost_generator_impl(ctx):
             # May not be perfect either, as the files are formatted before they
             # get indented to match their module nesting.
             "PATH": rustfmt.dirname,
+            # We've patched rustfmt to expect that it can resolve the path to
+            # protoc at runtime via this environment variable, rather than
+            # expecting that this path was available at build time.
+            "PROTOC": ctx.executable._protoc.path,
         },
         outputs = [output_dir, lib_rs],
         tools = [ctx.executable._generator, ctx.executable._protoc, rustfmt],
@@ -169,19 +170,19 @@ def _prost_generator_impl(ctx):
 _prost_generator = rule(
     _prost_generator_impl,
     attrs = {
+        "crate": attr.string(
+            mandatory = True,
+        ),
         "deps": attr.label_list(
             doc = "List of proto_library dependencies that will be built.",
             mandatory = True,
             providers = [ProtoInfo],
         ),
-        "grpc": attr.bool(
-            doc = "Enables tonic service stub code generation",
-        ),
         "extern": attr.label_list(
             doc = "",
         ),
-        "crate": attr.string(
-            mandatory = True,
+        "grpc": attr.bool(
+            doc = "Enables tonic service stub code generation",
         ),
         "_generator": attr.label(
             executable = True,
