@@ -105,6 +105,7 @@ rust_analyzer_aspect = aspect(
     attr_aspects = ["deps", "proc_macro_deps"],
     implementation = _rust_analyzer_aspect_impl,
     toolchains = [str(Label("//rust:toolchain"))],
+    incompatible_use_toolchain_transition = True,
     doc = "Annotates rust rules with RustAnalyzerInfo later used to build a rust-project.json",
 )
 
@@ -170,7 +171,7 @@ def create_crate(ctx, info, crate_mapping):
 # cargo_build_script rules. This would require a genrule to actually construct
 # the JSON, rather than being able to build it completly in starlark.
 # TODO(djmarcin): Run the cargo_build_scripts to gather env vars correctly.
-def _rust_project_impl(ctx):
+def _rust_analyzer_impl(ctx):
     rust_toolchain = find_toolchain(ctx)
     sysroot_src = _exec_root_tmpl + rust_toolchain.rust_lib.label.workspace_root + "/lib/rustlib/src/library"
 
@@ -214,7 +215,10 @@ rust_analyzer = rule(
     outputs = {
         "filename": "rust-project.json",
     },
-    implementation = _rust_project_impl,
+    implementation = _rust_analyzer_impl,
     toolchains = [str(Label("//rust:toolchain"))],
-    doc = "Produces a rust-project.json for the given targets. Configure rust-analyzer to load the generated file via the linked projects mechanism.",
+    incompatible_use_toolchain_transition = True,
+    doc = """\
+Produces a rust-project.json for the given targets. Configure rust-analyzer to load the generated file via the linked projects mechanism.
+""",
 )

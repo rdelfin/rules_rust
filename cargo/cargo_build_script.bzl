@@ -1,16 +1,14 @@
 # buildifier: disable=module-docstring
 load("@bazel_tools//tools/build_defs/cc:action_names.bzl", "C_COMPILE_ACTION_NAME")
 load("@bazel_tools//tools/cpp:toolchain_utils.bzl", "find_cpp_toolchain")
+load("//rust:defs.bzl", "rust_common")
 load("//rust:rust.bzl", "rust_binary")
 
 # buildifier: disable=bzl-visibility
-load("//rust/private:rust.bzl", "name_to_crate_name")
+load("//rust/private:rustc.bzl", "BuildInfo", "get_compilation_mode_opts", "get_linker_and_args")
 
 # buildifier: disable=bzl-visibility
-load("//rust/private:rustc.bzl", "BuildInfo", "DepInfo", "get_compilation_mode_opts", "get_linker_and_args")
-
-# buildifier: disable=bzl-visibility
-load("//rust/private:utils.bzl", "expand_locations", "find_cc_toolchain", "find_toolchain")
+load("//rust/private:utils.bzl", "expand_locations", "find_cc_toolchain", "find_toolchain", "name_to_crate_name")
 
 def get_cc_compile_env(cc_toolchain, feature_configuration):
     """Gather cc environment variables from the given `cc_toolchain`
@@ -56,14 +54,7 @@ def _build_script_impl(ctx):
         stderr = ctx.actions.declare_file(ctx.label.name + ".stderr.log"),
     )
 
-    crate_name = ctx.attr.crate_name
-
-    # Derive crate name from the rule label which is <crate_name>_build_script if not provided.
-    if not crate_name:
-        crate_name = ctx.label.name
-        if crate_name.endswith("_build_script"):
-            crate_name = crate_name.replace("_build_script", "")
-        crate_name = crate_name.replace("_", "-")
+    pkg_name = _name_to_pkg_name(ctx.label.name)
 
     toolchain_tools = [
         # Needed for rustc to function.
@@ -78,8 +69,9 @@ def _build_script_impl(ctx):
     env = dict(ctx.configuration.default_shell_env)
 
     env.update({
+        "CARGO_CRATE_NAME": name_to_crate_name(pkg_name),
         "CARGO_MANIFEST_DIR": manifest_dir,
-        "CARGO_PKG_NAME": crate_name,
+        "CARGO_PKG_NAME": pkg_name,
         "HOST": toolchain.exec_triple,
         "OPT_LEVEL": compilation_mode_opt_level,
         # This isn't exactly right, but Bazel doesn't have exact views of "debug" and "release", so...
@@ -119,9 +111,11 @@ def _build_script_impl(ctx):
         ar_executable = cc_toolchain.ar_executable
         if ar_executable:
             env["AR"] = ar_executable
+        if cc_toolchain.sysroot:
+            env["SYSROOT"] = cc_toolchain.sysroot
 
     for f in ctx.attr.crate_features:
-        env["CARGO_FEATURE_" + name_to_crate_name(f).upper()] = "1"
+        env["CARGO_FEATURE_" + f.upper().replace("-", "_")] = "1"
 
     env.update(expand_locations(
         ctx,
@@ -149,7 +143,6 @@ def _build_script_impl(ctx):
     args = ctx.actions.args()
     args.add_all([
         script.path,
-        crate_name,
         links,
         out_dir.path,
         env_out.path,
@@ -161,11 +154,11 @@ def _build_script_impl(ctx):
     ])
     build_script_inputs = []
     for dep in ctx.attr.deps:
-        if DepInfo in dep and dep[DepInfo].dep_env:
-            dep_env_file = dep[DepInfo].dep_env
+        if rust_common.dep_info in dep and dep[rust_common.dep_info].dep_env:
+            dep_env_file = dep[rust_common.dep_info].dep_env
             args.add(dep_env_file.path)
             build_script_inputs.append(dep_env_file)
-            for dep_build_info in dep[DepInfo].transitive_build_infos.to_list():
+            for dep_build_info in dep[rust_common.dep_info].transitive_build_infos.to_list():
                 build_script_inputs.append(dep_build_info.out_dir)
 
     ctx.actions.run(
@@ -202,16 +195,13 @@ _build_script_run = rule(
         "crate_features": attr.string_list(
             doc = "The list of rust features that the build script should consider activated.",
         ),
-        "crate_name": attr.string(
-            doc = "Name of the crate associated with this build script target",
-        ),
         "data": attr.label_list(
             doc = "Data or tools required by the build script.",
             allow_files = True,
         ),
         "deps": attr.label_list(
-            doc = "The Rust dependencies of the crate defined by `crate_name`",
-            providers = [DepInfo],
+            doc = "The Rust dependencies of the crate",
+            providers = [rust_common.dep_info],
         ),
         "links": attr.string(
             doc = "The name of the native library this crate links against.",
@@ -243,17 +233,18 @@ _build_script_run = rule(
         str(Label("//rust:toolchain")),
         "@bazel_tools//tools/cpp:toolchain_type",
     ],
+    incompatible_use_toolchain_transition = True,
 )
 
 def cargo_build_script(
         name,
-        crate_name = "",
         crate_features = [],
         version = None,
         deps = [],
         build_script_env = {},
         data = [],
         links = None,
+        rustc_env = {},
         **kwargs):
     """Compile and execute a rust build script to generate build attributes
 
@@ -314,28 +305,37 @@ def cargo_build_script(
     build script in addition to the file generated by it.
 
     Args:
-        name (str): The target name for the underlying rule
-        crate_name (str, optional): Name of the crate associated with this build script target.
+        name (str): The name for the underlying rule. This should be the name of the package being compiled, optionally with a suffix of _build_script.
         crate_features (list, optional): A list of features to enable for the build script.
         version (str, optional): The semantic version (semver) of the crate.
-        deps (list, optional): The dependencies of the crate defined by `crate_name`.
+        deps (list, optional): The dependencies of the crate.
         build_script_env (dict, optional): Environment variables for build scripts.
         data (list, optional): Files or tools needed by the build script.
         links (str, optional): Name of the native library this crate links against.
+        rustc_env (dict, optional): Environment variables to set in rustc when compiling the build script.
         **kwargs: Forwards to the underlying `rust_binary` rule.
     """
+
+    # This duplicates the code in _build_script_impl because we need to make these available both when we invoke rustc (this code) and when we run the compiled build script (_build_script_impl).
+    # https://github.com/bazelbuild/rules_rust/issues/661 will hopefully remove this duplication.
+    rustc_env = dict(rustc_env)
+    if "CARGO_PKG_NAME" not in rustc_env:
+        rustc_env["CARGO_PKG_NAME"] = _name_to_pkg_name(name)
+    if "CARGO_CRATE_NAME" not in rustc_env:
+        rustc_env["CARGO_CRATE_NAME"] = name_to_crate_name(_name_to_pkg_name(name))
+
     rust_binary(
         name = name + "_script_",
         crate_features = crate_features,
         version = version,
         deps = deps,
         data = data,
+        rustc_env = rustc_env,
         **kwargs
     )
     _build_script_run(
         name = name,
         script = ":%s_script_" % name,
-        crate_name = crate_name,
         crate_features = crate_features,
         version = version,
         build_script_env = build_script_env,
@@ -343,3 +343,8 @@ def cargo_build_script(
         deps = deps,
         data = data,
     )
+
+def _name_to_pkg_name(name):
+    if name.endswith("_build_script"):
+        return name[:-len("_build_script")]
+    return name

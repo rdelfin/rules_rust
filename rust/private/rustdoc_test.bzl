@@ -14,8 +14,7 @@
 
 # buildifier: disable=module-docstring
 load("//rust/private:common.bzl", "rust_common")
-load("//rust/private:rustc.bzl", "DepInfo")
-load("//rust/private:utils.bzl", "find_toolchain", "get_lib_name")
+load("//rust/private:utils.bzl", "find_toolchain", "get_lib_name", "get_preferred_artifact")
 
 def _rust_doc_test_impl(ctx):
     """The implementation for the `rust_doc_test` rule
@@ -33,7 +32,7 @@ def _rust_doc_test_impl(ctx):
 
     toolchain = find_toolchain(ctx)
 
-    dep_info = ctx.attr.dep[DepInfo]
+    dep_info = ctx.attr.dep[rust_common.dep_info]
 
     # Construct rustdoc test command, which will be written to a shell script
     # to be executed to run the test.
@@ -45,13 +44,13 @@ def _rust_doc_test_impl(ctx):
 
     # The test script compiles the crate and runs it, so it needs both compile and runtime inputs.
     compile_inputs = depset(
-        crate.srcs +
         [crate.output] +
-        dep_info.transitive_libs +
         [toolchain.rust_doc] +
         [toolchain.rustc] +
         toolchain.crosstool_files,
         transitive = [
+            crate.srcs,
+            dep_info.transitive_libs,
             toolchain.rustc_lib.files,
             toolchain.rust_lib.files,
         ],
@@ -79,7 +78,7 @@ def _dirname(path_str):
     return "/".join(path_str.split("/")[:-1])
 
 def _build_rustdoc_flags(dep_info, crate):
-    """Constructs the rustdoc script used to test `crate`. 
+    """Constructs the rustdoc script used to test `crate`.
 
     Args:
         dep_info (DepInfo): The DepInfo provider
@@ -99,10 +98,16 @@ def _build_rustdoc_flags(dep_info, crate):
     link_flags += ["--extern=" + c.name + "=" + c.dep.output.short_path for c in d.direct_crates.to_list()]
     link_search_flags += ["-Ldependency={}".format(_dirname(c.output.short_path)) for c in d.transitive_crates.to_list()]
 
-    link_flags += ["-ldylib=" + get_lib_name(lib) for lib in d.transitive_dylibs.to_list()]
-    link_search_flags += ["-Lnative={}".format(_dirname(lib.short_path)) for lib in d.transitive_dylibs.to_list()]
-    link_flags += ["-lstatic=" + get_lib_name(lib) for lib in d.transitive_staticlibs.to_list()]
-    link_search_flags += ["-Lnative={}".format(_dirname(lib.short_path)) for lib in d.transitive_staticlibs.to_list()]
+    # TODO(hlopko): use the more robust logic from rustc.bzl also here, through a reasonable API.
+    for lib_to_link in dep_info.transitive_noncrates.to_list():
+        is_static = bool(lib_to_link.static_library or lib_to_link.pic_static_library)
+        f = get_preferred_artifact(lib_to_link)
+        if not is_static:
+            link_flags.append("-ldylib=" + get_lib_name(f))
+        else:
+            link_flags.append("-lstatic=" + get_lib_name(f))
+        link_flags.append("-Lnative={}".format(_dirname(f.short_path)))
+        link_search_flags.append("-Lnative={}".format(_dirname(f.short_path)))
 
     edition_flags = ["--edition={}".format(crate.edition)] if crate.edition != "2015" else []
 
@@ -199,6 +204,7 @@ rust_doc_test = rule(
     executable = True,
     test = True,
     toolchains = [str(Label("//rust:toolchain"))],
+    incompatible_use_toolchain_transition = True,
     doc = """Runs Rust documentation tests.
 
 Example:

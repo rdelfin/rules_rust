@@ -84,6 +84,7 @@ def _clippy_aspect_impl(target, ctx):
 
     args, env = construct_arguments(
         ctx,
+        ctx.rule.attr,
         ctx.file,
         toolchain,
         toolchain.clippy_driver.path,
@@ -98,7 +99,6 @@ def _clippy_aspect_impl(target, ctx):
         build_env_files = build_env_files,
         build_flags_files = build_flags_files,
         maker_path = clippy_marker.path,
-        aspect = True,
         emit = ["dep-info", "metadata"],
     )
 
@@ -156,6 +156,7 @@ rust_clippy_aspect = aspect(
         str(Label("//rust:toolchain")),
         "@bazel_tools//tools/cpp:toolchain_type",
     ],
+    incompatible_use_toolchain_transition = True,
     implementation = _clippy_aspect_impl,
     doc = """\
 Executes the clippy checker on specified targets.

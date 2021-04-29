@@ -15,7 +15,7 @@
 # buildifier: disable=module-docstring
 load("//rust/private:common.bzl", "rust_common")
 load("//rust/private:rustc.bzl", "rustc_compile_action")
-load("//rust/private:utils.bzl", "determine_output_hash", "expand_locations", "find_toolchain")
+load("//rust/private:utils.bzl", "crate_name_from_attr", "determine_output_hash", "expand_locations", "find_toolchain")
 
 # TODO(marco): Separate each rule into its own file.
 
@@ -30,6 +30,32 @@ def _assert_no_deprecated_attributes(ctx):
             "`out_dir_tar` is no longer supported, please use cargo/cargo_build_script.bzl ",
             "instead. If you used `cargo raze`, please use version 0.3.3 or later.",
         ]))
+
+def _assert_correct_dep_mapping(ctx):
+    """Forces a failure if proc_macro_deps and deps are mixed inappropriately
+
+    Args:
+        ctx (ctx): The current rule's context object
+    """
+    for dep in ctx.attr.deps:
+        if rust_common.crate_info in dep:
+            if dep[rust_common.crate_info].type == "proc-macro":
+                fail(
+                    "{} listed {} in its deps, but it is a proc-macro. It should instead be in the bazel property proc_macro_deps.".format(
+                        ctx.label,
+                        dep.label,
+                    ),
+                )
+    for dep in ctx.attr.proc_macro_deps:
+        type = dep[rust_common.crate_info].type
+        if type != "proc-macro":
+            fail(
+                "{} listed {} in its proc_macro_deps, but it is not proc-macro, it is a {}. It should probably instead be listed in deps.".format(
+                    ctx.label,
+                    dep.label,
+                    type,
+                ),
+            )
 
 def _determine_lib_name(name, crate_type, toolchain, lib_hash = ""):
     """See https://github.com/bazelbuild/rules_rust/issues/405
@@ -138,6 +164,10 @@ def _shortest_src_with_basename(srcs, basename):
 def _rust_library_impl(ctx):
     """The implementation of the `rust_library` rule.
 
+    This rule provides CcInfo, so it can be used everywhere Bazel
+    expects rules_cc, but care must be taken to have the correct
+    dependencies on an allocator and std implemetation as needed.
+
     Args:
         ctx (ctx): The rule's context object
 
@@ -149,6 +179,9 @@ def _rust_library_impl(ctx):
 def _rust_static_library_impl(ctx):
     """The implementation of the `rust_static_library` rule.
 
+    This rule provides CcInfo, so it can be used everywhere Bazel
+    expects rules_cc.
+
     Args:
         ctx (ctx): The rule's context object
 
@@ -159,6 +192,9 @@ def _rust_static_library_impl(ctx):
 
 def _rust_shared_library_impl(ctx):
     """The implementation of the `rust_shared_library` rule.
+
+    This rule provides CcInfo, so it can be used everywhere Bazel
+    expects rules_cc.
 
     Args:
         ctx (ctx): The rule's context object
@@ -193,13 +229,14 @@ def _rust_library_common(ctx, crate_type):
     # Find lib.rs
     crate_root = crate_root_src(ctx.attr, ctx.files.srcs, "lib")
     _assert_no_deprecated_attributes(ctx)
+    _assert_correct_dep_mapping(ctx)
 
     toolchain = find_toolchain(ctx)
 
     # Determine unique hash for this rlib
     output_hash = determine_output_hash(crate_root)
 
-    crate_name = name_to_crate_name(ctx.label.name)
+    crate_name = crate_name_from_attr(ctx.attr)
     rust_lib_name = _determine_lib_name(
         crate_name,
         crate_type,
@@ -216,9 +253,9 @@ def _rust_library_common(ctx, crate_type):
             name = crate_name,
             type = crate_type,
             root = crate_root,
-            srcs = ctx.files.srcs,
-            deps = ctx.attr.deps,
-            proc_macro_deps = ctx.attr.proc_macro_deps,
+            srcs = depset(ctx.files.srcs),
+            deps = depset(ctx.attr.deps),
+            proc_macro_deps = depset(ctx.attr.proc_macro_deps),
             aliases = ctx.attr.aliases,
             output = rust_lib,
             edition = get_edition(ctx.attr, toolchain),
@@ -238,21 +275,22 @@ def _rust_binary_impl(ctx):
         list: A list of providers. See `rustc_compile_action`
     """
     toolchain = find_toolchain(ctx)
-    crate_name = name_to_crate_name(ctx.label.name)
+    crate_name = crate_name_from_attr(ctx.attr)
+    _assert_correct_dep_mapping(ctx)
 
     output = ctx.actions.declare_file(ctx.label.name + toolchain.binary_ext)
 
     return rustc_compile_action(
         ctx = ctx,
         toolchain = toolchain,
-        crate_type = "bin",
+        crate_type = ctx.attr.crate_type,
         crate_info = rust_common.crate_info(
             name = crate_name,
-            type = "bin",
-            root = crate_root_src(ctx.attr, ctx.files.srcs, crate_type = "bin"),
-            srcs = ctx.files.srcs,
-            deps = ctx.attr.deps,
-            proc_macro_deps = ctx.attr.proc_macro_deps,
+            type = ctx.attr.crate_type,
+            root = crate_root_src(ctx.attr, ctx.files.srcs, ctx.attr.crate_type),
+            srcs = depset(ctx.files.srcs),
+            deps = depset(ctx.attr.deps),
+            proc_macro_deps = depset(ctx.attr.proc_macro_deps),
             aliases = ctx.attr.aliases,
             output = output,
             edition = get_edition(ctx.attr, toolchain),
@@ -274,41 +312,29 @@ def _create_test_launcher(ctx, toolchain, output, providers):
         list: A list of providers similar to `rustc_compile_action` but with modified default info
     """
 
-    args = ctx.actions.args()
-
     # TODO: It's unclear if the toolchain is in the same configuration as the `_launcher` attribute
     # This should be investigated but for now, we generally assume if the target environment is windows,
     # the execution environment is windows.
     if toolchain.os == "windows":
-        launcher = ctx.actions.declare_file(name_to_crate_name(ctx.label.name + ".launcher.exe"))
-
-        # Because the windows target is a batch file, it expects native windows paths (with backslashes)
-        args.add_all([
-            ctx.executable._launcher.path.replace("/", "\\"),
-            launcher.path.replace("/", "\\"),
-        ])
+        launcher_filename = ctx.label.name + ".launcher.exe"
     else:
-        launcher = ctx.actions.declare_file(name_to_crate_name(ctx.label.name + ".launcher"))
-        args.add_all([
-            ctx.executable._launcher,
-            launcher,
-        ])
+        launcher_filename = ctx.label.name + ".launcher"
+
+    launcher = ctx.actions.declare_file(launcher_filename)
 
     # Because returned executables must be created from the same rule, the
-    # launcher target is simply copied and exposed.
-    ctx.actions.run(
-        outputs = [launcher],
-        tools = [ctx.executable._launcher],
-        mnemonic = "GeneratingLauncher",
-        executable = ctx.executable._launcher_installer,
-        arguments = [args],
+    # launcher target is simply symlinked and exposed.
+    ctx.actions.symlink(
+        output = launcher,
+        target_file = ctx.executable._launcher,
+        is_executable = True,
     )
 
     # Get data attribute
     data = getattr(ctx.attr, "data", [])
 
     # Expand the environment variables and write them to a file
-    environ_file = ctx.actions.declare_file(launcher.basename + ".launchfiles/env")
+    environ_file = ctx.actions.declare_file(launcher_filename + ".launchfiles/env")
     environ = expand_locations(
         ctx,
         getattr(ctx.attr, "env", {}),
@@ -367,20 +393,21 @@ def _rust_test_common(ctx, toolchain, output):
         list: The list of providers. See `rustc_compile_action`
     """
     _assert_no_deprecated_attributes(ctx)
+    _assert_correct_dep_mapping(ctx)
 
-    crate_name = name_to_crate_name(ctx.label.name)
+    crate_name = crate_name_from_attr(ctx.attr)
     crate_type = "bin"
     if ctx.attr.crate:
         # Target is building the crate in `test` config
         # Build the test binary using the dependency's srcs.
         crate = ctx.attr.crate[rust_common.crate_info]
-        target = rust_common.crate_info(
+        crate_info = rust_common.crate_info(
             name = crate_name,
             type = crate_type,
             root = crate.root,
-            srcs = crate.srcs + ctx.files.srcs,
-            deps = crate.deps + ctx.attr.deps,
-            proc_macro_deps = crate.proc_macro_deps + ctx.attr.proc_macro_deps,
+            srcs = depset(ctx.files.srcs, transitive = [crate.srcs]),
+            deps = depset(ctx.attr.deps, transitive = [crate.deps]),
+            proc_macro_deps = depset(ctx.attr.proc_macro_deps, transitive = [crate.proc_macro_deps]),
             aliases = ctx.attr.aliases,
             output = output,
             edition = crate.edition,
@@ -389,13 +416,13 @@ def _rust_test_common(ctx, toolchain, output):
         )
     else:
         # Target is a standalone crate. Build the test binary as its own crate.
-        target = rust_common.crate_info(
+        crate_info = rust_common.crate_info(
             name = crate_name,
             type = crate_type,
             root = crate_root_src(ctx.attr, ctx.files.srcs, "lib"),
-            srcs = ctx.files.srcs,
-            deps = ctx.attr.deps,
-            proc_macro_deps = ctx.attr.proc_macro_deps,
+            srcs = depset(ctx.files.srcs),
+            deps = depset(ctx.attr.deps),
+            proc_macro_deps = depset(ctx.attr.proc_macro_deps),
             aliases = ctx.attr.aliases,
             output = output,
             edition = get_edition(ctx.attr, toolchain),
@@ -407,7 +434,7 @@ def _rust_test_common(ctx, toolchain, output):
         ctx = ctx,
         toolchain = toolchain,
         crate_type = crate_type,
-        crate_info = target,
+        crate_info = crate_info,
         rust_flags = ["--test"],
     )
 
@@ -425,7 +452,7 @@ def _rust_test_impl(ctx):
     toolchain = find_toolchain(ctx)
 
     output = ctx.actions.declare_file(
-        name_to_crate_name(ctx.label.name) + toolchain.binary_ext,
+        ctx.label.name + toolchain.binary_ext,
     )
 
     return _rust_test_common(ctx, toolchain, output)
@@ -496,18 +523,36 @@ def _tidy(doc_string):
     Returns:
         str: A string optimized for stardoc rendering
     """
-    return "\n".join([line.strip() for line in doc_string.splitlines()])
+    lines = doc_string.splitlines()
+    if not lines:
+        return doc_string
+
+    # If the first line is empty, use the second line
+    first_line = lines[0]
+    if not first_line:
+        first_line = lines[1]
+
+    # Detect how much space prepends the first line and subtract that from all lines
+    space_count = len(first_line) - len(first_line.lstrip())
+
+    # If there are no leading spaces, do not alter the docstring
+    if space_count == 0:
+        return doc_string
+    else:
+        # Remove the leading block of spaces from the current line
+        block = " " * space_count
+        return "\n".join([line.replace(block, "", 1).rstrip() for line in lines])
 
 _common_attrs = {
     "aliases": attr.label_keyed_string_dict(
-        doc = _tidy("""
+        doc = _tidy("""\
             Remap crates to a new name or moniker for linkage to this target
 
             These are other `rust_library` targets and will be presented as the new name given.
         """),
     ),
     "compile_data": attr.label_list(
-        doc = _tidy("""
+        doc = _tidy("""\
             List of files used by this rule at compile time.
 
             This attribute can be used to specify any data files that are embedded into
@@ -518,7 +563,7 @@ _common_attrs = {
         allow_files = True,
     ),
     "crate_features": attr.string_list(
-        doc = _tidy("""
+        doc = _tidy("""\
             List of features to enable for this crate.
 
             Features are defined in the code using the `#[cfg(feature = "foo")]`
@@ -526,8 +571,16 @@ _common_attrs = {
             with `--cfg feature="${feature_name}"` flags.
         """),
     ),
+    "crate_name": attr.string(
+        doc = _tidy("""\
+            Crate name to use for this target.
+
+            This must be a valid Rust identifier, i.e. it may contain only alphanumeric characters and underscores.
+            Defaults to the target name, with any hyphens replaced by underscores.
+        """),
+    ),
     "crate_root": attr.label(
-        doc = _tidy("""
+        doc = _tidy("""\
             The file that will be passed to `rustc` to be used for building this crate.
 
             If `crate_root` is not set, then this rule will look for a `lib.rs` file (or `main.rs` for rust_binary)
@@ -536,7 +589,7 @@ _common_attrs = {
         allow_single_file = [".rs"],
     ),
     "data": attr.label_list(
-        doc = _tidy("""
+        doc = _tidy("""\
             List of files used by this rule at compile time and runtime.
 
             If including data at compile time with include_str!() and similar,
@@ -546,7 +599,7 @@ _common_attrs = {
         allow_files = True,
     ),
     "deps": attr.label_list(
-        doc = _tidy("""
+        doc = _tidy("""\
             List of other libraries to be linked to this library target.
 
             These can be either other `rust_library` targets or `cc_library` targets if
@@ -568,14 +621,14 @@ _common_attrs = {
     # This fails for remote execution, which needs cfg="exec", and there isn't anything like
     # `@local_config_platform//:exec` exposed.
     "proc_macro_deps": attr.label_list(
-        doc = _tidy("""
+        doc = _tidy("""\
             List of `rust_library` targets with kind `proc-macro` used to help build this library target.
         """),
         cfg = "exec",
         providers = [rust_common.crate_info],
     ),
     "rustc_env": attr.string_dict(
-        doc = _tidy("""
+        doc = _tidy("""\
             Dictionary of additional `"key": "value"` environment variables to set for rustc.
 
             rust_test()/rust_binary() rules can use $(rootpath //package:target) to pass in the
@@ -586,7 +639,7 @@ _common_attrs = {
         """),
     ),
     "rustc_env_files": attr.label_list(
-        doc = _tidy("""
+        doc = _tidy("""\
             Files containing additional environment variables to set for rustc.
 
             These files should  contain a single variable per line, of format
@@ -605,7 +658,7 @@ _common_attrs = {
     #     doc = "This name will also be used as the name of the crate built by this rule.",
     # `),
     "srcs": attr.label_list(
-        doc = _tidy("""
+        doc = _tidy("""\
             List of Rust `.rs` source files used to build the library.
 
             If `srcs` contains more than one file, then there must be a file either
@@ -633,7 +686,7 @@ _common_attrs = {
 _rust_test_attrs = {
     "crate": attr.label(
         mandatory = False,
-        doc = _tidy("""
+        doc = _tidy("""\
             Target inline tests declared in the given crate
 
             These tests are typically those that would be held out under
@@ -642,9 +695,9 @@ _rust_test_attrs = {
     ),
     "env": attr.string_dict(
         mandatory = False,
-        doc = _tidy("""
-            Specifies additional environment variables to set when the test is executed by bazel test. 
-            Values are subject to `$(execpath)` and 
+        doc = _tidy("""\
+            Specifies additional environment variables to set when the test is executed by bazel test.
+            Values are subject to `$(execpath)` and
             ["Make variable"](https://docs.bazel.build/versions/master/be/make-variables.html) substitution.
         """),
     ),
@@ -652,17 +705,9 @@ _rust_test_attrs = {
         executable = True,
         default = Label("//util/launcher:launcher"),
         cfg = "exec",
-        doc = _tidy("""
+        doc = _tidy("""\
             A launcher executable for loading environment and argument files passed in via the `env` attribute
             and ensuring the variables are set for the underlying test executable.
-        """),
-    ),
-    "_launcher_installer": attr.label(
-        executable = True,
-        default = Label("//util/launcher:installer"),
-        cfg = "exec",
-        doc = _tidy("""
-            A helper script for creating an installer within the test rule.
         """),
     ),
 }
@@ -676,6 +721,7 @@ rust_library = rule(
         str(Label("//rust:toolchain")),
         "@bazel_tools//tools/cpp:toolchain_type",
     ],
+    incompatible_use_toolchain_transition = True,
     doc = _tidy("""\
         Builds a Rust library crate.
 
@@ -751,6 +797,7 @@ rust_static_library = rule(
         str(Label("//rust:toolchain")),
         "@bazel_tools//tools/cpp:toolchain_type",
     ],
+    incompatible_use_toolchain_transition = True,
     doc = _tidy("""\
         Builds a Rust static library.
 
@@ -773,6 +820,7 @@ rust_shared_library = rule(
         str(Label("//rust:toolchain")),
         "@bazel_tools//tools/cpp:toolchain_type",
     ],
+    incompatible_use_toolchain_transition = True,
     doc = _tidy("""\
         Builds a Rust shared library.
 
@@ -795,14 +843,24 @@ rust_proc_macro = rule(
         str(Label("//rust:toolchain")),
         "@bazel_tools//tools/cpp:toolchain_type",
     ],
+    incompatible_use_toolchain_transition = True,
     doc = _tidy("""\
         Builds a Rust proc-macro crate.
         """),
 )
 
 _rust_binary_attrs = {
+    "crate_type": attr.string(
+        doc = _tidy("""\
+            Crate type that will be passed to `rustc` to be used for building this crate.
+
+            This option is a temporary workaround and should be used only when building
+            for WebAssembly targets (//rust/platform:wasi and //rust/platform:wasm).
+        """),
+        default = "bin",
+    ),
     "linker_script": attr.label(
-        doc = _tidy("""
+        doc = _tidy("""\
             Link script to forward into linker via rustc options.
         """),
         cfg = "exec",
@@ -821,6 +879,7 @@ rust_binary = rule(
         str(Label("//rust:toolchain")),
         "@bazel_tools//tools/cpp:toolchain_type",
     ],
+    incompatible_use_toolchain_transition = True,
     doc = _tidy("""\
         Builds a Rust binary crate.
 
@@ -919,6 +978,7 @@ rust_test = rule(
         str(Label("//rust:toolchain")),
         "@bazel_tools//tools/cpp:toolchain_type",
     ],
+    incompatible_use_toolchain_transition = True,
     doc = _tidy("""\
         Builds a Rust test crate.
 
@@ -1067,6 +1127,7 @@ rust_test_binary = rule(
         str(Label("//rust:toolchain")),
         "@bazel_tools//tools/cpp:toolchain_type",
     ],
+    incompatible_use_toolchain_transition = True,
     doc = _tidy("""\
         Builds a Rust test binary, without marking this rule as a Bazel test.
 
@@ -1080,6 +1141,80 @@ rust_test_binary = rule(
         """),
 )
 
+def rust_test_suite(name, srcs, **kwargs):
+    """A rule for creating a test suite for a set of `rust_test` targets.
+
+    This rule can be used for setting up typical rust [integration tests][it]. Given the following
+    directory structure:
+
+    ```text
+    [crate]/
+        BUILD.bazel
+        src/
+            lib.rs
+            main.rs
+        tests/
+            integrated_test_a.rs
+            integrated_test_b.rs
+            integrated_test_c.rs
+            patterns/
+                fibonacci_test.rs
+    ```
+
+    The rule can be used to generate [rust_test](#rust_test) targets for each source file under `tests`
+    and a [test_suite][ts] which encapsulates all tests.
+
+    ```python
+    load("//rust:defs.bzl", "rust_binary", "rust_library", "rust_test_suite")
+
+    rust_library(
+        name = "math_lib",
+        srcs = ["src/lib.rs"],
+    )
+
+    rust_binary(
+        name = "math_bin",
+        srcs = ["src/main.rs"],
+    )
+
+    rust_test_suite(
+        name = "integrated_tests_suite",
+        srcs = glob(["tests/**"]),
+        deps = [":math_lib"],
+    )
+    ```
+
+    [it]: https://doc.rust-lang.org/rust-by-example/testing/integration_testing.html
+    [ts]: https://docs.bazel.build/versions/master/be/general.html#test_suite
+
+    Args:
+        name (str): The name of the `test_suite`.
+        srcs (list): All test sources, typically `glob(["tests/**/*.rs"])`.
+        **kwargs (dict): Additional keyword arguments for the underyling [rust_test](#rust_test) targets. The
+            `tags` argument is also passed to the generated `test_suite` target.
+    """
+    tests = []
+
+    for src in srcs:
+        if not src.endswith(".rs"):
+            fail("srcs should have `.rs` extensions")
+
+        # The test name should not end with `.rs`
+        test_name = src[:-3]
+        rust_test(
+            name = test_name,
+            crate_name = test_name.replace("/", "_"),
+            srcs = [src],
+            **kwargs
+        )
+        tests.append(test_name)
+
+    native.test_suite(
+        name = name,
+        tests = tests,
+        tags = kwargs.get("tags", None),
+    )
+
 rust_benchmark = rule(
     implementation = _rust_benchmark_impl,
     attrs = _common_attrs,
@@ -1090,6 +1225,7 @@ rust_benchmark = rule(
         str(Label("//rust:toolchain")),
         "@bazel_tools//tools/cpp:toolchain_type",
     ],
+    incompatible_use_toolchain_transition = True,
     doc = _tidy("""\
         Builds a Rust benchmark test.
 
@@ -1171,21 +1307,3 @@ rust_benchmark = rule(
         Run the benchmark test using: `bazel run //fibonacci:fibonacci_bench`.
         """),
 )
-
-def name_to_crate_name(name):
-    """Converts a build target's name into the name of its associated crate.
-
-    Crate names cannot contain certain characters, such as -, which are allowed
-    in build target names. All illegal characters will be converted to
-    underscores.
-
-    This is a similar conversion as that which cargo does, taking a
-    `Cargo.toml`'s `package.name` and canonicalizing it
-
-    Args:
-        name (str): The name of the target.
-
-    Returns:
-        str: The name of the crate for this target.
-    """
-    return name.replace("-", "_")

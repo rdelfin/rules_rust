@@ -1,6 +1,15 @@
 #!/bin/bash
 
-pushd ${0%/*}
+set -euo pipefail
+
+if [[ -n "${BUILD_WORKSPACE_DIRECTORY:-}" ]]; then
+    DOCS_WORKSPACE="${BUILD_WORKSPACE_DIRECTORY}"
+else
+    # https://stackoverflow.com/a/246128/7768383
+    DOCS_WORKSPACE="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+fi
+
+pushd "${DOCS_WORKSPACE}" &> /dev/null
 # It's important to clean the workspace so we don't end up with unintended
 # docs artifacts in the new commit.
 bazel clean \
@@ -9,5 +18,5 @@ bazel clean \
 && chmod 0644 *.md \
 && git add *.md \
 && git commit -m "Regenerate documentation"
-popd
+popd &> /dev/null
 
