@@ -6,15 +6,15 @@ DO NOT EDIT! Replaced on runs of cargo-raze
 """
 
 # buildifier: disable=load
+load("@bazel_skylib//lib:selects.bzl", "selects")
+
+# buildifier: disable=load
 load(
     "@rules_rust//rust:rust.bzl",
     "rust_binary",
     "rust_library",
     "rust_test",
 )
-
-# buildifier: disable=load
-load("@bazel_skylib//lib:selects.bzl", "selects")
 
 package(default_visibility = [
     # Public for visibility by "@raze__crate__version//" targets.
@@ -29,6 +29,7 @@ licenses([
 ])
 
 # Generated Targets
+# buildifier: disable=out-of-order-load
 # buildifier: disable=load-on-top
 load(
     "@rules_rust//cargo:cargo_build_script.bzl",
@@ -41,25 +42,35 @@ cargo_build_script(
     build_script_env = {
     },
     crate_features = [
+        "cfg",
         "errhandlingapi",
+        "evntrace",
         "fileapi",
         "handleapi",
+        "in6addr",
+        "inaddr",
+        "ioapiset",
         "lmcons",
         "minschannel",
         "minwinbase",
         "minwindef",
+        "mstcpip",
+        "mswsock",
+        "namedpipeapi",
         "ntdef",
         "ntsecapi",
-        "profileapi",
         "schannel",
         "securitybaseapi",
         "sspi",
         "std",
+        "synchapi",
         "sysinfoapi",
         "timezoneapi",
         "winbase",
         "wincrypt",
+        "windef",
         "winerror",
+        "winioctl",
         "winsock2",
         "ws2def",
         "ws2ipdef",
@@ -86,25 +97,35 @@ rust_library(
     name = "winapi",
     srcs = glob(["**/*.rs"]),
     crate_features = [
+        "cfg",
         "errhandlingapi",
+        "evntrace",
         "fileapi",
         "handleapi",
+        "in6addr",
+        "inaddr",
+        "ioapiset",
         "lmcons",
         "minschannel",
         "minwinbase",
         "minwindef",
+        "mstcpip",
+        "mswsock",
+        "namedpipeapi",
         "ntdef",
         "ntsecapi",
-        "profileapi",
         "schannel",
         "securitybaseapi",
         "sspi",
         "std",
+        "synchapi",
         "sysinfoapi",
         "timezoneapi",
         "winbase",
         "wincrypt",
+        "windef",
         "winerror",
+        "winioctl",
         "winsock2",
         "ws2def",
         "ws2ipdef",

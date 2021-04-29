@@ -4,7 +4,7 @@ load("//rust:rust.bzl", "rust_binary", "rust_doc", "rust_library", "rust_test")
 
 package(default_visibility = ["//visibility:private"])
 
-exports_files(["rules.bzl"])
+exports_files(["prostgen.bzl"])
 
 rust_library(
     name = "prostgen_lib",

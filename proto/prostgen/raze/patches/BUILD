@@ -6,7 +6,7 @@ package(default_visibility = ["//visibility:private"])
 filegroup(
     name = "patches",
     srcs = [
-        "prost-build-0.6.1.patch",
+        "prost-build-0.7.0.patch",
     ],
     visibility = ["//proto/prostgen/raze:__subpackages__"],
 )
@@ -14,6 +14,6 @@ filegroup(
 filegroup(
     name = "docs",
     srcs = [
-        "prost-build-0.6.1.md",
+        "prost-build-0.7.0.md",
     ],
 )
