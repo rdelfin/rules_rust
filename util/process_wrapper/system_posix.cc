@@ -17,6 +17,7 @@
 
 // posix headers
 #include <fcntl.h>
+#include <signal.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -32,7 +33,7 @@ namespace process_wrapper {
 namespace {
 
 class OutputPipe {
-public:
+ public:
   static constexpr size_t kReadEndDesc = 0;
   static constexpr size_t kWriteEndDesc = 1;
 
@@ -96,7 +97,7 @@ public:
     return true;
   }
 
-private:
+ private:
   void Close(size_t idx) {
     if (output_pipe_desc_[idx] > 0) {
       close(output_pipe_desc_[idx]);
@@ -106,7 +107,7 @@ private:
   int output_pipe_desc_[2] = {-1};
 };
 
-} // namespace
+}  // namespace
 
 System::StrType System::GetWorkingDirectory() {
   const size_t kMaxBufferLength = 4096;
@@ -174,12 +175,23 @@ int System::Exec(const System::StrType &executable,
     }
   }
 
-  int err, exit_status = -1;
+  int err, exit_status;
   do {
     err = waitpid(child_pid, &exit_status, 0);
   } while (err == -1 && errno == EINTR);
 
-  return exit_status;
+  if (WIFEXITED(exit_status)) {
+    return WEXITSTATUS(exit_status);
+  } else if (WIFSIGNALED(exit_status)) {
+    raise(WTERMSIG(exit_status));
+  } else if (WIFSTOPPED(exit_status)) {
+    raise(WSTOPSIG(exit_status));
+  } else {
+    std::cerr << "process wrapper error: failed to parse exit code of the "
+                 "child process: "
+              << exit_status << ".\n";
+  }
+  return -1;
 }
 
-} // namespace process_wrapper
+}  // namespace process_wrapper

@@ -75,6 +75,7 @@ PAGES = dict([
     ),
     page(
         name = "rust_clippy",
+        header_template = ":rust_clippy.vm",
         symbols = [
             "rust_clippy",
             "rust_clippy_aspect",
@@ -85,6 +86,14 @@ PAGES = dict([
         symbols = [
             "rust_doc",
             "rust_doc_test",
+        ],
+    ),
+    page(
+        name = "rust_fmt",
+        header_template = ":rust_fmt.vm",
+        symbols = [
+            "rustfmt_aspect",
+            "rustfmt_test",
         ],
     ),
     page(

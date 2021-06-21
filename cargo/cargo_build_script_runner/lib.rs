@@ -108,9 +108,7 @@ impl BuildScriptOutput {
 
     /// Take a [Command], execute it and converts its input into a vector of [BuildScriptOutput]
     pub fn from_command(cmd: &mut Command) -> Result<(Vec<BuildScriptOutput>, Output), Output> {
-        let child_output = cmd
-            .output()
-            .expect("Unable to start binary");
+        let child_output = cmd.output().expect("Unable to start binary");
         if child_output.status.success() {
             let reader = BufReader::new(child_output.stdout.as_slice());
             let output = Self::from_reader(reader);
@@ -125,7 +123,9 @@ impl BuildScriptOutput {
         v.iter()
             .filter_map(|x| {
                 if let BuildScriptOutput::Env(env) = x {
-                    Some(Self::redact_exec_root(env, exec_root))
+                    Some(Self::escape_for_serializing(Self::redact_exec_root(
+                        env, exec_root,
+                    )))
                 } else {
                     None
                 }
@@ -143,7 +143,7 @@ impl BuildScriptOutput {
                     Some(format!(
                         "{}{}",
                         prefix,
-                        Self::redact_exec_root(env, exec_root)
+                        Self::escape_for_serializing(Self::redact_exec_root(env, exec_root))
                     ))
                 } else {
                     None
@@ -175,6 +175,19 @@ impl BuildScriptOutput {
 
     fn redact_exec_root(value: &str, exec_root: &str) -> String {
         value.replace(exec_root, "${pwd}")
+    }
+
+    // The process-wrapper treats trailing backslashes as escapes for following newlines.
+    // If the env var ends with a backslash (and accordingly doesn't have a following newline),
+    // escape it so that it doesn't get turned into a newline by the process-wrapper.
+    //
+    // Note that this code doesn't handle newlines in strings - that's because Cargo treats build
+    // script output as single-line-oriented, so stops processing at the end of a line regardless.
+    fn escape_for_serializing(mut value: String) -> String {
+        if value.ends_with('\\') {
+            value.push('\\');
+        }
+        value
     }
 }
 

@@ -25,12 +25,6 @@ load("//rust/private:common.bzl", "rust_common")
 load("//rust/private:rustc.bzl", "BuildInfo")
 load("//rust/private:utils.bzl", "find_toolchain")
 
-# We support only these rule kinds.
-_rust_rules = [
-    "rust_library",
-    "rust_binary",
-]
-
 RustAnalyzerInfo = provider(
     doc = "RustAnalyzerInfo holds rust crate metadata for targets",
     fields = {
@@ -66,6 +60,9 @@ def _rust_analyzer_aspect_impl(target, ctx):
     dep_infos = [dep[RustAnalyzerInfo] for dep in ctx.rule.attr.deps if RustAnalyzerInfo in dep]
     if hasattr(ctx.rule.attr, "proc_macro_deps"):
         dep_infos += [dep[RustAnalyzerInfo] for dep in ctx.rule.attr.proc_macro_deps if RustAnalyzerInfo in dep]
+    if hasattr(ctx.rule.attr, "crate"):
+        dep_infos.append(ctx.rule.attr.crate[RustAnalyzerInfo])
+
     transitive_deps = depset(direct = dep_infos, order = "postorder", transitive = [dep.transitive_deps for dep in dep_infos])
 
     crate_info = target[rust_common.crate_info]
@@ -102,7 +99,7 @@ def find_proc_macro_dylib_path(toolchain, target):
     return None
 
 rust_analyzer_aspect = aspect(
-    attr_aspects = ["deps", "proc_macro_deps"],
+    attr_aspects = ["deps", "proc_macro_deps", "crate"],
     implementation = _rust_analyzer_aspect_impl,
     toolchains = [str(Label("//rust:toolchain"))],
     incompatible_use_toolchain_transition = True,
@@ -173,7 +170,16 @@ def create_crate(ctx, info, crate_mapping):
 # TODO(djmarcin): Run the cargo_build_scripts to gather env vars correctly.
 def _rust_analyzer_impl(ctx):
     rust_toolchain = find_toolchain(ctx)
-    sysroot_src = _exec_root_tmpl + rust_toolchain.rust_lib.label.workspace_root + "/lib/rustlib/src/library"
+
+    if not rust_toolchain.rustc_srcs:
+        fail(
+            "Current Rust toolchain doesn't contain rustc sources in `rustc_srcs` attribute.",
+            "These are needed by rust analyzer.",
+            "If you are using the default Rust toolchain, add `rust_repositories(include_rustc_srcs = True, ...).` to your WORKSPACE file.",
+        )
+    sysroot_src = rust_toolchain.rustc_srcs.label.package + "/library"
+    if rust_toolchain.rustc_srcs.label.workspace_root:
+        sysroot_src = _exec_root_tmpl + rust_toolchain.rustc_srcs.label.workspace_root + "/" + sysroot_src
 
     # Gather all crates and their dependencies into an array.
     # Dependencies are referenced by index, so leaves should come first.

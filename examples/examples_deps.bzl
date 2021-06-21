@@ -16,7 +16,7 @@ load("@examples//prostgen/raze:crates.bzl", "rules_rust_examples_prostgen_fetch_
 def deps():
     """Define dependencies for `rules_rust` examples"""
 
-    rust_repositories()
+    rust_repositories(include_rustc_srcs = True)
 
     rust_bindgen_repositories()
 

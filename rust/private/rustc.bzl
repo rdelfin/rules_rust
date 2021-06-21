@@ -133,7 +133,7 @@ def collect_deps(label, deps, proc_macro_deps, aliases, toolchain):
 
             transitive_crates.append(depset([dep[rust_common.crate_info]], transitive = [dep[rust_common.dep_info].transitive_crates]))
             transitive_noncrates.append(dep[rust_common.dep_info].transitive_noncrates)
-            transitive_noncrate_libs.append(depset(dep[rust_common.dep_info].transitive_libs))
+            transitive_noncrate_libs.append(dep[rust_common.dep_info].transitive_libs)
             transitive_build_infos.append(dep[rust_common.dep_info].transitive_build_infos)
         elif CcInfo in dep:
             # This dependency is a cc_library
@@ -580,7 +580,7 @@ def rustc_compile_action(
     if hasattr(ctx.attr, "out_binary"):
         out_binary = getattr(ctx.attr, "out_binary")
 
-    return establish_cc_info(ctx, crate_info, toolchain, cc_toolchain, feature_configuration) + [
+    providers = [
         crate_info,
         dep_info,
         DefaultInfo(
@@ -590,6 +590,10 @@ def rustc_compile_action(
             executable = crate_info.output if crate_info.type == "bin" or crate_info.is_test or out_binary else None,
         ),
     ]
+    if toolchain.target_arch != "wasm32":
+        providers += establish_cc_info(ctx, crate_info, toolchain, cc_toolchain, feature_configuration)
+
+    return providers
 
 def _is_dylib(dep):
     return not bool(dep.static_library or dep.pic_static_library)
@@ -731,7 +735,12 @@ def _compute_rpaths(toolchain, output_dir, dep_info):
     dylibs = [lib for lib in preferreds if lib.basename.endswith(toolchain.dylib_ext) or lib.basename.split(".", 2)[1] == toolchain.dylib_ext[1:]]
     if not dylibs:
         return depset([])
-    if toolchain.os != "linux":
+
+    # For darwin, dylibs compiled by Bazel will fail to be resolved at runtime
+    # without a version of Bazel that includes
+    # https://github.com/bazelbuild/bazel/pull/13427. This is known to not be
+    # included in Bazel 4.1 and below.
+    if toolchain.os != "linux" and toolchain.os != "darwin":
         fail("Runtime linking is not supported on {}, but found {}".format(
             toolchain.os,
             dep_info.transitive_noncrates,

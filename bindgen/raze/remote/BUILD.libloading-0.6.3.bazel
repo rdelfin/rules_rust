@@ -29,7 +29,6 @@ licenses([
 ])
 
 # Generated Targets
-# buildifier: disable=out-of-order-load
 # buildifier: disable=load-on-top
 load(
     "@rules_rust//cargo:cargo_build_script.bzl",

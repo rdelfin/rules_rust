@@ -139,11 +139,10 @@ def _crate_universe_resolve_impl(repository_ctx):
             "RUSTC": str(rustc_path),
             "RUST_LOG": "info",
         },
+        quiet = False,
     )
-    if result.stderr:
-        print("Output from resolver: " + result.stderr)  # buildifier: disable=print
     if result.return_code != 0:
-        fail("Error resolving deps:\n" + result.stdout + "\n" + result.stderr)
+        fail("Error resolving crate_universe deps - see above output for more information")
 
     repository_ctx.file("BUILD.bazel")
 
@@ -211,6 +210,8 @@ Environment Variables:
         ),
     },
     environ = [
+        "REPIN",
+        "RULES_RUST_REPIN",
         "RULES_RUST_CRATE_UNIVERSE_RESOLVER_URL_OVERRIDE",
         "RULES_RUST_CRATE_UNIVERSE_RESOLVER_URL_OVERRIDE_SHA256",
         BOOTSTRAP_ENV_VAR,

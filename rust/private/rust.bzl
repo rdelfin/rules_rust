@@ -25,11 +25,7 @@ def _assert_no_deprecated_attributes(ctx):
     Args:
         ctx (ctx): The current rule's context object
     """
-    if getattr(ctx.attr, "out_dir_tar", None):
-        fail(ctx, "".join([
-            "`out_dir_tar` is no longer supported, please use cargo/cargo_build_script.bzl ",
-            "instead. If you used `cargo raze`, please use version 0.3.3 or later.",
-        ]))
+    pass
 
 def _assert_correct_dep_mapping(ctx):
     """Forces a failure if proc_macro_deps and deps are mixed inappropriately
@@ -89,6 +85,8 @@ def _determine_lib_name(name, crate_type, toolchain, lib_hash = ""):
 
     prefix = "lib"
     if (toolchain.target_triple.find("windows") != -1) and crate_type not in ("lib", "rlib"):
+        prefix = ""
+    if toolchain.target_arch == "wasm32" and crate_type == "cdylib":
         prefix = ""
 
     return "{prefix}{name}-{lib_hash}{extension}".format(
@@ -435,7 +433,7 @@ def _rust_test_common(ctx, toolchain, output):
         toolchain = toolchain,
         crate_type = crate_type,
         crate_info = crate_info,
-        rust_flags = ["--test"],
+        rust_flags = ["--test"] if ctx.attr.use_libtest_harness else ["--cfg", "test"],
     )
 
     return _create_test_launcher(ctx, toolchain, output, providers)
@@ -609,13 +607,6 @@ _common_attrs = {
     "edition": attr.string(
         doc = "The rust edition to use for this crate. Defaults to the edition specified in the rust_toolchain.",
     ),
-    "out_dir_tar": attr.label(
-        doc = "__Deprecated__, do not use, see [#cargo_build_script] instead.",
-        allow_single_file = [
-            ".tar",
-            ".tar.gz",
-        ],
-    ),
     # Previously `proc_macro_deps` were a part of `deps`, and then proc_macro_host_transition was
     # used into cfg="host" using `@local_config_platform//:host`.
     # This fails for remote execution, which needs cfg="exec", and there isn't anything like
@@ -701,6 +692,13 @@ _rust_test_attrs = {
             ["Make variable"](https://docs.bazel.build/versions/master/be/make-variables.html) substitution.
         """),
     ),
+    "use_libtest_harness": attr.bool(
+        mandatory = False,
+        default = True,
+        doc = _tidy("""\
+            Whether to use libtest.
+        """),
+    ),
     "_launcher": attr.label(
         executable = True,
         default = Label("//util/launcher:launcher"),
@@ -712,8 +710,15 @@ _rust_test_attrs = {
     ),
 }
 
+_common_providers = [
+    rust_common.crate_info,
+    rust_common.dep_info,
+    DefaultInfo,
+]
+
 rust_library = rule(
     implementation = _rust_library_impl,
+    provides = _common_providers,
     attrs = dict(_common_attrs.items()),
     fragments = ["cpp"],
     host_fragments = ["cpp"],
@@ -790,6 +795,7 @@ rust_library = rule(
 
 rust_static_library = rule(
     implementation = _rust_static_library_impl,
+    provides = _common_providers,
     attrs = dict(_common_attrs.items()),
     fragments = ["cpp"],
     host_fragments = ["cpp"],
@@ -813,6 +819,7 @@ rust_static_library = rule(
 
 rust_shared_library = rule(
     implementation = _rust_shared_library_impl,
+    provides = _common_providers,
     attrs = dict(_common_attrs.items()),
     fragments = ["cpp"],
     host_fragments = ["cpp"],
@@ -836,6 +843,7 @@ rust_shared_library = rule(
 
 rust_proc_macro = rule(
     implementation = _rust_proc_macro_impl,
+    provides = _common_providers,
     attrs = dict(_common_attrs.items()),
     fragments = ["cpp"],
     host_fragments = ["cpp"],
@@ -871,6 +879,7 @@ _rust_binary_attrs = {
 
 rust_binary = rule(
     implementation = _rust_binary_impl,
+    provides = _common_providers,
     attrs = dict(_common_attrs.items() + _rust_binary_attrs.items()),
     executable = True,
     fragments = ["cpp"],
@@ -968,6 +977,7 @@ rust_binary = rule(
 
 rust_test = rule(
     implementation = _rust_test_impl,
+    provides = _common_providers,
     attrs = dict(_common_attrs.items() +
                  _rust_test_attrs.items()),
     executable = True,
@@ -1118,6 +1128,7 @@ rust_test = rule(
 
 rust_test_binary = rule(
     implementation = _rust_test_impl,
+    provides = _common_providers,
     attrs = dict(_common_attrs.items() +
                  _rust_test_attrs.items()),
     executable = True,

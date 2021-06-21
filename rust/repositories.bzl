@@ -24,7 +24,7 @@ DEFAULT_TOOLCHAIN_TRIPLES = {
 }
 
 # Note: Code in `.github/workflows/crate_universe.yaml` looks for this line, if you remove it or change its format, you will also need to update that code.
-DEFAULT_RUST_VERSION = "1.51.0"
+DEFAULT_RUST_VERSION = "1.53.0"
 
 # buildifier: disable=unnamed-macro
 def rust_repositories(
@@ -34,6 +34,7 @@ def rust_repositories(
         edition = None,
         dev_components = False,
         sha256s = None,
+        include_rustc_srcs = False,
         urls = DEFAULT_STATIC_RUST_URL_TEMPLATES):
     """Emits a default set of toolchains for Linux, MacOS, and Freebsd
 
@@ -60,6 +61,8 @@ def rust_repositories(
         edition (str, optional): The rust edition to be used by default (2015 (default) or 2018)
         dev_components (bool, optional): Whether to download the rustc-dev components (defaults to False). Requires version to be "nightly".
         sha256s (str, optional): A dict associating tool subdirectories to sha256 hashes. Defaults to None.
+        include_rustc_srcs (bool, optional): Whether to download rustc's src code. This is required in order to use rust-analyzer support.
+            See [rust_toolchain_repository.include_rustc_srcs](#rust_toolchain_repository-include_rustc_srcs). for more details
         urls (list, optional): A list of mirror urls containing the tools from the Rust-lang static file server. These must contain the '{}' used to substitute the tool being fetched (using .format). Defaults to ['https://static.rust-lang.org/dist/{}.tar.gz']
     """
 
@@ -99,6 +102,7 @@ def rust_repositories(
             edition = edition,
             dev_components = dev_components,
             sha256s = sha256s,
+            include_rustc_srcs = include_rustc_srcs,
             urls = urls,
         )
 
@@ -213,25 +217,6 @@ def BUILD_for_rustfmt(target_triple):
         binary_ext = system_to_binary_ext(system),
     )
 
-_build_file_for_rustc_src = """\
-load("@rules_rust//rust:toolchain.bzl", "rust_toolchain")
-
-filegroup(
-    name = "rustc_src",
-    srcs = glob(
-        [
-            "lib/rustlib/src/**/*.rs",
-        ],
-    ),
-    visibility = ["//visibility:public"],
-)
-"""
-
-def BUILD_for_rustc_src():
-    """Emits a BUILD file for the rustc src extracted files."""
-
-    return _build_file_for_rustc_src
-
 _build_file_for_clippy_template = """\
 load("@rules_rust//rust:toolchain.bzl", "rust_toolchain")
 
@@ -285,7 +270,7 @@ rust_toolchain(
     cargo = "@{workspace_name}//:cargo",
     clippy_driver = "@{workspace_name}//:clippy_driver_bin",
     rustc_lib = "@{workspace_name}//:rustc_lib",
-    rustc_src  = "@{workspace_name}//:rustc_src",
+    rustc_srcs = {rustc_srcs},
     binary_ext = "{binary_ext}",
     staticlib_ext = "{staticlib_ext}",
     dylib_ext = "{dylib_ext}",
@@ -303,6 +288,7 @@ def BUILD_for_rust_toolchain(
         name,
         exec_triple,
         target_triple,
+        include_rustc_srcs,
         stdlib_linkflags = None,
         default_edition = "2015"):
     """Emits a toolchain declaration to match an existing compiler and stdlib.
@@ -312,6 +298,7 @@ def BUILD_for_rust_toolchain(
         name (str): The name of the toolchain declaration
         exec_triple (str): The rust-style target that this compiler runs on
         target_triple (str): The rust-style target triple of the tool
+        include_rustc_srcs (bool, optional): Whether to download rustc's src code. This is required in order to use rust-analyzer support. Defaults to False.
         stdlib_linkflags (list, optional): Overriden flags needed for linking to rust
                                            stdlib, akin to BAZEL_LINKLIBS. Defaults to
                                            None.
@@ -324,12 +311,17 @@ def BUILD_for_rust_toolchain(
     if stdlib_linkflags == None:
         stdlib_linkflags = ", ".join(['"%s"' % x for x in system_to_stdlib_linkflags(system)])
 
+    rustc_srcs = "None"
+    if include_rustc_srcs:
+        rustc_srcs = "\"@{workspace_name}//lib/rustlib/src:rustc_srcs\"".format(workspace_name = workspace_name)
+
     return _build_file_for_rust_toolchain_template.format(
         toolchain_name = name,
         workspace_name = workspace_name,
         binary_ext = system_to_binary_ext(system),
         staticlib_ext = system_to_staticlib_ext(system),
         dylib_ext = system_to_dylib_ext(system),
+        rustc_srcs = rustc_srcs,
         stdlib_linkflags = stdlib_linkflags,
         system = system,
         default_edition = default_edition,
@@ -485,8 +477,6 @@ def _load_rust_src(ctx):
 
     Args:
         ctx (ctx): A repository_ctx.
-    Returns:
-        string: The BUILD file contents for the rust source code
     """
     tool_suburl = produce_tool_suburl("rustc", "src", ctx.attr.version, ctx.attr.iso_date)
     static_rust = ctx.os.environ.get("STATIC_RUST_URL", "https://static.rust-lang.org")
@@ -504,7 +494,15 @@ def _load_rust_src(ctx):
         output = "lib/rustlib/src",
         stripPrefix = tool_path,
     )
-    return BUILD_for_rustc_src()
+    ctx.file(
+        "lib/rustlib/src/BUILD.bazel",
+        """\
+filegroup(
+    name = "rustc_srcs",
+    srcs = glob(["**/*"]),
+    visibility = ["//visibility:public"],
+)""",
+    )
 
 def _load_rust_stdlib(ctx, target_triple):
     """Loads a rust standard library and yields corresponding BUILD for it
@@ -538,6 +536,7 @@ def _load_rust_stdlib(ctx, target_triple):
             target_triple = target_triple,
         ),
         exec_triple = ctx.attr.exec_triple,
+        include_rustc_srcs = ctx.attr.include_rustc_srcs,
         target_triple = target_triple,
         stdlib_linkflags = stdlib_linkflags,
         workspace_name = ctx.attr.name,
@@ -554,12 +553,16 @@ def _load_rustc_dev_nightly(ctx, target_triple):
         target_triple: The rust-style target triple of the tool
     """
 
+    subdir_name = "rustc-dev"
+    if ctx.attr.iso_date < "2020-12-24":
+        subdir_name = "rustc-dev-{}".format(target_triple)
+
     load_arbitrary_tool(
         ctx,
         iso_date = ctx.attr.iso_date,
         target_triple = target_triple,
         tool_name = "rustc-dev",
-        tool_subdirectories = ["rustc-dev-{}".format(target_triple)],
+        tool_subdirectories = [subdir_name],
         version = ctx.attr.version,
     )
 
@@ -588,7 +591,18 @@ def _rust_toolchain_repository_impl(ctx):
 
     _check_version_valid(ctx.attr.version, ctx.attr.iso_date)
 
-    build_components = [_load_rust_compiler(ctx), _load_rust_src(ctx)]
+    # Determing whether or not to include rustc sources in the toolchain. The environment
+    # variable will always take precedence over the attribute.
+    include_rustc_srcs_env = ctx.os.environ.get("RULES_RUST_TOOLCHAIN_INCLUDE_RUSTC_SRCS")
+    if include_rustc_srcs_env != None:
+        include_rustc_srcs = include_rustc_srcs_env.lower() in ["true", "1"]
+    else:
+        include_rustc_srcs = ctx.attr.include_rustc_srcs
+
+    if include_rustc_srcs:
+        _load_rust_src(ctx)
+
+    build_components = [_load_rust_compiler(ctx)]
 
     if ctx.attr.rustfmt_version:
         build_components.append(_load_rustfmt(ctx))
@@ -648,6 +662,16 @@ rust_toolchain_repository = repository_rule(
         "extra_target_triples": attr.string_list(
             doc = "Additional rust-style targets that this set of toolchains should support.",
         ),
+        "include_rustc_srcs": attr.bool(
+            doc = (
+                "Whether to download and unpack the rustc source files. These are very large, and " +
+                "slow to unpack, but are required to support rust analyzer. An environment variable " +
+                "`RULES_RUST_TOOLCHAIN_INCLUDE_RUSTC_SRCS` can also be used to control this attribute. " +
+                "This variable will take precedence over the hard coded attribute. Setting it to `true` to " +
+                "activates this attribute where all other values deactivate it."
+            ),
+            default = False,
+        ),
         "iso_date": attr.string(
             doc = "The date of the tool (or None, if the version is a specific version).",
         ),
@@ -670,6 +694,7 @@ rust_toolchain_repository = repository_rule(
         ),
     },
     implementation = _rust_toolchain_repository_impl,
+    environ = ["RULES_RUST_TOOLCHAIN_INCLUDE_RUSTC_SRCS"],
 )
 
 rust_toolchain_repository_proxy = repository_rule(
@@ -700,6 +725,7 @@ def rust_repository_set(
         name,
         version,
         exec_triple,
+        include_rustc_srcs = False,
         extra_target_triples = [],
         iso_date = None,
         rustfmt_version = None,
@@ -717,6 +743,7 @@ def rust_repository_set(
         name (str): The name of the generated repository
         version (str): The version of the tool among "nightly", "beta', or an exact version.
         exec_triple (str): The Rust-style target that this compiler runs on
+        include_rustc_srcs (bool, optional): Whether to download rustc's src code. This is required in order to use rust-analyzer support. Defaults to False.
         extra_target_triples (list, optional): Additional rust-style targets that this set of
             toolchains should support. Defaults to [].
         iso_date (str, optional): The date of the tool. Defaults to None.
@@ -733,6 +760,7 @@ def rust_repository_set(
     rust_toolchain_repository(
         name = name,
         exec_triple = exec_triple,
+        include_rustc_srcs = include_rustc_srcs,
         extra_target_triples = extra_target_triples,
         iso_date = iso_date,
         toolchain_name_prefix = DEFAULT_TOOLCHAIN_NAME_PREFIX,
