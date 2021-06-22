@@ -1,10 +1,12 @@
 # Code Generation for protobuf using the prost library
-
 load("//rust:rust.bzl", "rust_binary", "rust_doc", "rust_library", "rust_test")
+load(":toolchain.bzl", "rust_prostgen_toolchain")
 
 package(default_visibility = ["//visibility:private"])
 
 exports_files(["prostgen.bzl"])
+
+toolchain_type(name = "toolchain")
 
 rust_library(
     name = "prostgen_lib",
@@ -47,3 +49,6 @@ rust_test(
     name = "prostgen_test",
     crate = ":prostgen_lib",
 )
+
+rust_prostgen_toolchain(name = "default-prostgen-toolchain-impl")
+
