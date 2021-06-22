@@ -42,6 +42,23 @@ def _prost_generator_impl(ctx):
     output_dir = ctx.actions.declare_directory(ctx.label.name)
     lib_rs = ctx.actions.declare_file("%s/lib.rs" % ctx.label.name)
     args = ctx.actions.args()
+    toolchain_info = ctx.toolchains["//proto/prostgen:toolchain"].prostgen_tool_info
+
+    out = ctx.actions.declare_file(ctx.label.name + ".BUILD")
+    ctx.actions.expand_template(
+        output = out,
+        template = ctx.file.template,
+        substitutions = {
+            "{anyhow}": toolchain_info.anyhow,
+            "{heck}": toolchain.heck,
+            "{prost}", toolchain.prost,
+            "{prost_build}", toolchain.prost_build,
+            "{prost_types}", toolchain.prost_types,
+            "{structopt}", toolchain.structopt,
+            "{thiserror}", toolchain.thiserror,
+            "{tonic_build}", toolchain.tonic_build,
+        },
+    )
 
     direct_sources = depset(transitive = [
         depset(f[ProtoInfo].direct_sources)
@@ -200,6 +217,7 @@ _prost_generator = rule(
     },
     toolchains = [
         "@rules_rust//rust:toolchain",
+        "//proto/prostgen:toolchain",
     ],
     doc = """
 Provides a wrapper around the generation of rust files.  The specification of

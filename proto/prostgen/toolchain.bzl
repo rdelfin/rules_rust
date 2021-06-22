@@ -14,11 +14,37 @@
 
 """Toolchain for compiling protobuf and gRPC rust stubs with and for use by prost and tonic."""
 
+ProstGenToolInfo = provider(
+    doc = "Information about dependencies used by the tonic+prost generators.",
+    # In the real world, compiler_path and system_lib might hold File objects,
+    # but for simplicity they are strings for this example. arch_flags is a list
+    # of strings.
+    fields = [
+        "anyhow",
+        "heck",
+        "prost",
+        "prost_build",
+        "prost_types",
+        "structopt",
+        "thiserror",
+        "tonic_build",
+        "protoc",
+    ],
+)
+
 def _rust_prostgen_toolchain_impl(ctx):
     return platform_common.ToolchainInfo(
-        prost = ctx.attr.prost,
-        tonic = ctx.attr.tonic,
-        protoc = ctx.executable.protoc,
+        prostgen_tool_info=ProstGenToolInfo(
+            anyhow = ctx.attr.anyhow,
+            heck = ctx.attr.heck,
+            prost = ctx.attr.prost,
+            prost_build = ctx.attr.prost_build,
+            prost_types = ctx.attr.prost_types,
+            structopt = ctx.attr.structopt,
+            thiserror = ctx.attr.thiserror,
+            tonic_build = ctx.attr.tonic_build,
+            protoc = ctx.executable.protoc,
+        )
     )
 
 rust_prostgen_toolchain = rule(
