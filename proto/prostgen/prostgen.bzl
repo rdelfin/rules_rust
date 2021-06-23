@@ -143,8 +143,8 @@ def _prost_generator_impl(ctx):
     # to use this.
     #
     # See:
-    #  * https://github.com/danburkert/prost/pull/155
-    #  * https://github.com/danburkert/prost/pull/313
+    #  * https://github.com/tokio-rs/prost/pull/155
+    #  * https://github.com/tokio-rs/prost/pull/313
     #
     # This will let us pass along this full file descriptor set with the
     # associated source info with this generated target.  We use this for the
